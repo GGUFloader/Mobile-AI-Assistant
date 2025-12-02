@@ -307,6 +307,8 @@ class FloatingAssistantService : Service(), LifecycleOwner, SavedStateRegistryOw
                             chatView?.let { windowManager?.removeView(it) }
                             chatView = null
                             chatMessages.value = emptyList()
+                            // Clear conversation history to prevent hallucination
+                            (application as ChatApplication).modelRunner.clearHistory()
                         },
                         onDrag = { dx, dy ->
                             chatParams.x += dx.roundToInt()

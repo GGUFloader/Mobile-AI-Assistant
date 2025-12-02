@@ -62,6 +62,76 @@ static bool is_valid_utf8(const char* string) {
     return true;
 }
 
+// Check if the generated text contains stop sequences (model trying to continue conversation)
+static bool contains_stop_sequence(const std::string& text) {
+    // Common stop sequences for various model formats (Alpaca, ChatML, Vicuna, etc.)
+    static const char* stop_sequences[] = {
+        "### Instruction:",
+        "### Input:",
+        "### Response:",
+        "### Human:",
+        "### Assistant:",
+        "<|im_end|>",
+        "<|im_start|>",
+        "<|user|>",
+        "<|assistant|>",
+        "<|endoftext|>",
+        "</s>",
+        "\nUser:",
+        "\nHuman:",
+        "\nAssistant:",
+        "\n\nUser:",
+        "\n\nHuman:",
+        nullptr
+    };
+    
+    for (int i = 0; stop_sequences[i] != nullptr; i++) {
+        if (text.find(stop_sequences[i]) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Trim stop sequences from the end of generated text
+static std::string trim_at_stop_sequence(const std::string& text) {
+    static const char* stop_sequences[] = {
+        "### Instruction:",
+        "### Input:",
+        "### Response:",
+        "### Human:",
+        "### Assistant:",
+        "<|im_end|>",
+        "<|im_start|>",
+        "<|user|>",
+        "<|assistant|>",
+        "<|endoftext|>",
+        "</s>",
+        "\nUser:",
+        "\nHuman:",
+        "\nAssistant:",
+        "\n\nUser:",
+        "\n\nHuman:",
+        nullptr
+    };
+    
+    std::string result = text;
+    size_t earliest_pos = std::string::npos;
+    
+    for (int i = 0; stop_sequences[i] != nullptr; i++) {
+        size_t pos = result.find(stop_sequences[i]);
+        if (pos != std::string::npos && (earliest_pos == std::string::npos || pos < earliest_pos)) {
+            earliest_pos = pos;
+        }
+    }
+    
+    if (earliest_pos != std::string::npos) {
+        result = result.substr(0, earliest_pos);
+    }
+    
+    return result;
+}
+
 
 extern "C" {
 
@@ -280,6 +350,13 @@ Java_com_example_localchatbot_inference_LlamaCpp_generate(
             cached_chars.clear();
         }
 
+        // Check for stop sequences (model trying to continue conversation)
+        if (contains_stop_sequence(result)) {
+            LOGI("Stop sequence detected, trimming output");
+            result = trim_at_stop_sequence(result);
+            break;
+        }
+
         // Prepare next batch
         common_batch_clear(batch);
         common_batch_add(batch, new_token, n_cur, {0}, true);
@@ -296,6 +373,9 @@ Java_com_example_localchatbot_inference_LlamaCpp_generate(
     if (!cached_chars.empty() && is_valid_utf8(cached_chars.c_str())) {
         result += cached_chars;
     }
+
+    // Final trim of any stop sequences
+    result = trim_at_stop_sequence(result);
 
     llama_sampler_free(smpl);
     llama_batch_free(batch);
@@ -389,6 +469,7 @@ Java_com_example_localchatbot_inference_LlamaCpp_generateStreaming(
 
     // Generate tokens
     std::string cached_chars;
+    std::string full_response;  // Track full response for stop sequence detection
     int n_cur = tokens.size();
     const llama_vocab* vocab = llama_model_get_vocab(wrapper->model);
 
@@ -408,6 +489,14 @@ Java_com_example_localchatbot_inference_LlamaCpp_generateStreaming(
 
         // Send valid UTF-8 to callback
         if (is_valid_utf8(cached_chars.c_str())) {
+            full_response += cached_chars;
+            
+            // Check for stop sequences before sending
+            if (contains_stop_sequence(full_response)) {
+                LOGI("Stop sequence detected in streaming, stopping");
+                break;
+            }
+            
             jstring token = env->NewStringUTF(cached_chars.c_str());
             jboolean shouldContinue = env->CallBooleanMethod(callback, onTokenMethod, token);
             env->DeleteLocalRef(token);
@@ -431,8 +520,8 @@ Java_com_example_localchatbot_inference_LlamaCpp_generateStreaming(
         }
     }
 
-    // Send any remaining cached characters
-    if (!cached_chars.empty() && is_valid_utf8(cached_chars.c_str())) {
+    // Send any remaining cached characters (only if no stop sequence)
+    if (!cached_chars.empty() && is_valid_utf8(cached_chars.c_str()) && !contains_stop_sequence(cached_chars)) {
         jstring token = env->NewStringUTF(cached_chars.c_str());
         env->CallBooleanMethod(callback, onTokenMethod, token);
         env->DeleteLocalRef(token);

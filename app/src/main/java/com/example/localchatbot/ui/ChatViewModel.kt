@@ -196,6 +196,7 @@ class ChatViewModel(
     fun clearChat() {
         viewModelScope.launch {
             chatHistoryRepository.clearAllMessages()
+            modelRunner.clearHistory()  // Clear conversation context in ModelRunner
             _uiState.update { it.copy(messages = emptyList()) }
         }
     }
