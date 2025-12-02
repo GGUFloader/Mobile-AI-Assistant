@@ -48,20 +48,9 @@ class ModelRunner(context: Context) {
 
     private fun formatPrompt(userInput: String): String {
         val input = userInput.trim()
-        val lowerInput = input.lowercase(Locale.ROOT)
         
-        val isSummarize = lowerInput.startsWith("summarize") ||
-                lowerInput.startsWith("summary") ||
-                lowerInput.startsWith("tldr") ||
-                lowerInput.startsWith("sum up") ||
-                lowerInput.contains("summarize this") ||
-                lowerInput.contains("give me a summary")
-        
-        return if (isSummarize || input.length > 200) {
-            "Summarize the following text in 2-3 sentences. Be concise and capture only the key points.\n\nText: $input\n\nSummary:"
-        } else {
-            "Answer briefly and directly.\n\nQ: $input\n\nA:"
-        }
+        // Short, efficient prompt for summarization
+        return "Summarize briefly: $input\n\nSummary:"
     }
 
     fun isReady(): Boolean = engineManager.isModelLoaded()

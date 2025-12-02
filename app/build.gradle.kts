@@ -22,6 +22,18 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
+        
+        externalNativeBuild {
+            cmake {
+                arguments += "-DLLAMA_CURL=OFF"
+                arguments += "-DLLAMA_BUILD_COMMON=ON"
+                arguments += "-DGGML_LLAMAFILE=OFF"
+                arguments += "-DGGML_OPENMP=OFF"
+                arguments += "-DCMAKE_BUILD_TYPE=Release"
+                cppFlags += listOf("-O3", "-fno-finite-math-only")
+                cFlags += listOf("-O3", "-fno-finite-math-only")
+            }
+        }
     }
 
     buildTypes {
@@ -83,6 +95,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     
     implementation("com.facebook.soloader:soloader:0.10.5")
+    
+    // ExecuTorch for .pte model support
+    implementation(files("libs/executorch.aar"))
     
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

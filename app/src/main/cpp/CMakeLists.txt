@@ -6,25 +6,27 @@ project("localchatbot")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Add llama.cpp source directory
-set(LLAMA_DIR ${CMAKE_SOURCE_DIR}/llama.cpp)
-set(GGML_DIR ${LLAMA_DIR}/ggml)
+# Configure llama.cpp build options before adding subdirectory
+set(LLAMA_BUILD_COMMON ON CACHE BOOL "Build common utils library" FORCE)
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "Build tests" FORCE)
+set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "Build tools" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "Build examples" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "Build server" FORCE)
+set(LLAMA_CURL OFF CACHE BOOL "Use libcurl" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libs" FORCE)
 
-# Include headers
-include_directories(${LLAMA_DIR}/include)
-include_directories(${LLAMA_DIR}/src)
-include_directories(${LLAMA_DIR}/common)
-include_directories(${GGML_DIR}/include)
-include_directories(${GGML_DIR}/src)
-include_directories(${GGML_DIR}/src/ggml-cpu)
+# Build llama.cpp as a subdirectory
+add_subdirectory(llama.cpp build-llama)
 
-# Create the JNI library (placeholder - doesn't link llama.cpp yet)
-# The current llama-android.cpp is a stub that doesn't use llama.cpp
+# Create the JNI library
 add_library(llama-android SHARED
     llama-android.cpp
 )
 
+# Link against llama.cpp libraries
 target_link_libraries(llama-android
+    llama
+    common
     android
     log
 )

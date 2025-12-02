@@ -39,13 +39,18 @@ class ChatViewModel(
         restoreStateFromSavedState()
         initializeModel()
         restoreChatHistory()
+        
+        // Start resource monitoring if stats are enabled (use longer interval for performance)
+        if (_uiState.value.showStats) {
+            resourceMonitor.startLiveMonitoring(intervalMs = 3000)
+        }
     }
 
     private fun restoreStateFromSavedState() {
         val isModelReady = savedStateHandle.get<Boolean>(KEY_IS_MODEL_READY) ?: false
         val modelName = savedStateHandle.get<String>(KEY_MODEL_NAME)
         val engineName = savedStateHandle.get<String>(KEY_ENGINE_NAME)
-        val showStats = savedStateHandle.get<Boolean>(KEY_SHOW_STATS) ?: true
+        val showStats = savedStateHandle.get<Boolean>(KEY_SHOW_STATS) ?: false  // Disabled by default for performance
         val error = savedStateHandle.get<String>(KEY_ERROR)
 
         _uiState.update {
@@ -86,7 +91,16 @@ class ChatViewModel(
     }
 
     fun toggleStats() {
-        _uiState.update { it.copy(showStats = !it.showStats) }
+        val newShowStats = !_uiState.value.showStats
+        _uiState.update { it.copy(showStats = newShowStats) }
+        
+        // Start or stop resource monitoring based on stats visibility
+        if (newShowStats) {
+            resourceMonitor.startLiveMonitoring(intervalMs = 3000)  // 3 second interval for performance
+        } else {
+            resourceMonitor.stopLiveMonitoring()
+        }
+        
         saveStateToSavedState()
     }
 
@@ -188,6 +202,7 @@ class ChatViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        resourceMonitor.stopLiveMonitoring()
         modelRunner.release()
     }
 }

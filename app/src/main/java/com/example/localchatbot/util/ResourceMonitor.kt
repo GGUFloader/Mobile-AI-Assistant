@@ -3,6 +3,7 @@ package com.example.localchatbot.util
 import android.app.ActivityManager
 import android.content.Context
 import android.os.Debug
+import android.os.Process
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,13 +13,15 @@ import java.io.RandomAccessFile
 data class LiveResourceStats(
     val cpuUsage: Int = 0,
     val memoryUsageMb: Int = 0,
-    val availableMemoryMb: Int = 0
+    val availableMemoryMb: Int = 0,
+    val nativeHeapMb: Int = 0
 )
 
 data class ResourceMetrics(
     val cpuUsage: Float,
     val memoryUsageMb: Long,
-    val availableMemoryMb: Long
+    val availableMemoryMb: Long,
+    val nativeHeapMb: Long
 )
 
 class ResourceMonitor(private val context: Context) {
@@ -28,16 +31,25 @@ class ResourceMonitor(private val context: Context) {
     
     private var monitoringJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    
+    // For CPU calculation using process time
+    private var lastCpuTime: Long = 0
+    private var lastUpdateTime: Long = 0
 
     fun startLiveMonitoring(intervalMs: Long = 1000) {
         monitoringJob?.cancel()
+        // Initialize CPU tracking
+        lastCpuTime = Process.getElapsedCpuTime()
+        lastUpdateTime = System.currentTimeMillis()
+        
         monitoringJob = scope.launch {
             while (isActive) {
                 val metrics = getResourceMetrics()
                 _liveStats.value = LiveResourceStats(
                     cpuUsage = metrics.cpuUsage.toInt(),
                     memoryUsageMb = metrics.memoryUsageMb.toInt(),
-                    availableMemoryMb = metrics.availableMemoryMb.toInt()
+                    availableMemoryMb = metrics.availableMemoryMb.toInt(),
+                    nativeHeapMb = metrics.nativeHeapMb.toInt()
                 )
                 delay(intervalMs)
             }
@@ -50,46 +62,64 @@ class ResourceMonitor(private val context: Context) {
     }
 
     fun getResourceMetrics(): ResourceMetrics {
-        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        val memoryInfo = ActivityManager.MemoryInfo()
-        activityManager.getMemoryInfo(memoryInfo)
-        
+        // Use simple Runtime-based memory tracking to avoid memtrack errors
         val runtime = Runtime.getRuntime()
-        val usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
-        val availableMemory = memoryInfo.availMem / (1024 * 1024)
+        val appMemoryMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
         
-        val cpuUsage = getCpuUsage()
+        // Native heap allocated by the app (useful for ML models)
+        val nativeHeapMb = try {
+            Debug.getNativeHeapAllocatedSize() / (1024 * 1024)
+        } catch (e: Exception) {
+            0L
+        }
+        
+        // Available system memory
+        val availableMemory = try {
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val memoryInfo = ActivityManager.MemoryInfo()
+            activityManager.getMemoryInfo(memoryInfo)
+            memoryInfo.availMem / (1024 * 1024)
+        } catch (e: Exception) {
+            0L
+        }
+        
+        // Calculate CPU usage for this process
+        val cpuUsage = getProcessCpuUsage()
         
         return ResourceMetrics(
             cpuUsage = cpuUsage,
-            memoryUsageMb = usedMemory,
-            availableMemoryMb = availableMemory
+            memoryUsageMb = appMemoryMb,
+            availableMemoryMb = availableMemory,
+            nativeHeapMb = nativeHeapMb
         )
     }
 
-    private fun getCpuUsage(): Float {
+    /**
+     * Calculate CPU usage for this process based on elapsed CPU time.
+     * This measures how much CPU time our app has used relative to wall clock time.
+     */
+    private fun getProcessCpuUsage(): Float {
         return try {
-            val reader = RandomAccessFile("/proc/stat", "r")
-            val load = reader.readLine()
-            reader.close()
+            val currentCpuTime = Process.getElapsedCpuTime() // in milliseconds
+            val currentTime = System.currentTimeMillis()
             
-            val toks = load.split(" +".toRegex())
-            val idle1 = toks[4].toLong()
-            val cpu1 = toks[1].toLong() + toks[2].toLong() + toks[3].toLong() + toks[5].toLong() +
-                    toks[6].toLong() + toks[7].toLong()
+            val cpuTimeDelta = currentCpuTime - lastCpuTime
+            val timeDelta = currentTime - lastUpdateTime
             
-            Thread.sleep(100)
+            // Update for next calculation
+            lastCpuTime = currentCpuTime
+            lastUpdateTime = currentTime
             
-            val reader2 = RandomAccessFile("/proc/stat", "r")
-            val load2 = reader2.readLine()
-            reader2.close()
-            
-            val toks2 = load2.split(" +".toRegex())
-            val idle2 = toks2[4].toLong()
-            val cpu2 = toks2[1].toLong() + toks2[2].toLong() + toks2[3].toLong() + toks2[5].toLong() +
-                    toks2[6].toLong() + toks2[7].toLong()
-            
-            ((cpu2 - cpu1).toFloat() / ((cpu2 + idle2) - (cpu1 + idle1))) * 100f
+            if (timeDelta > 0) {
+                // CPU usage as percentage of wall clock time
+                // Multiply by number of cores to get relative usage
+                val numCores = Runtime.getRuntime().availableProcessors()
+                val usage = (cpuTimeDelta.toFloat() / timeDelta.toFloat()) * 100f
+                // Cap at 100% per core, show total across cores
+                minOf(usage, 100f * numCores)
+            } else {
+                0f
+            }
         } catch (e: Exception) {
             0f
         }

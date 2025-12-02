@@ -20,8 +20,66 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.localchatbot.data.ChatMessage
 import kotlinx.coroutines.launch
+
+// Compact stat item for resource monitoring bar
+@Composable
+fun StatItem(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    tint: Color
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            modifier = Modifier.size(14.dp),
+            tint = tint
+        )
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+// Helper composable for icon buttons with labels
+@Composable
+fun LabeledIconButton(
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit,
+    label: String,
+    enabled: Boolean = true
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(horizontal = 4.dp)
+    ) {
+        IconButton(onClick = onClick, enabled = enabled) {
+            icon()
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,17 +122,53 @@ fun ChatScreen(
             TopAppBar(
                 title = { Text("Local Chatbot") },
                 actions = {
-                    IconButton(onClick = { onFloatingButtonToggle(!isFloatingButtonEnabled) }) {
-                        Icon(
-                            imageVector = if (isFloatingButtonEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                            contentDescription = "Toggle floating button"
+                    // Floating Assistant Toggle with label
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 2.dp)
+                    ) {
+                        IconButton(onClick = { onFloatingButtonToggle(!isFloatingButtonEnabled) }) {
+                            Icon(
+                                imageVector = if (isFloatingButtonEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = "Toggle floating assistant"
+                            )
+                        }
+                        Text(
+                            text = if (isFloatingButtonEnabled) "Overlay On" else "Overlay Off",
+                            style = MaterialTheme.typography.labelSmall
                         )
                     }
-                    IconButton(onClick = { viewModel.toggleStats() }) {
-                        Icon(Icons.Default.Analytics, contentDescription = "Toggle stats")
+                    
+                    // Resource Stats Toggle with label
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 2.dp)
+                    ) {
+                        IconButton(onClick = { viewModel.toggleStats() }) {
+                            Icon(
+                                imageVector = Icons.Default.Analytics,
+                                contentDescription = "Toggle resource monitoring",
+                                tint = if (uiState.showStats) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Text(
+                            text = if (uiState.showStats) "Stats On" else "Stats Off",
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    
+                    // Settings with label
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 2.dp)
+                    ) {
+                        IconButton(onClick = onNavigateToSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                        Text(
+                            text = "Settings",
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
                 }
             )
@@ -138,7 +232,7 @@ fun ChatScreen(
                 }
             }
 
-            // Stats bar
+            // Resource Stats bar - shows real CPU and memory usage
             if (uiState.showStats) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -147,11 +241,41 @@ fun ChatScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("CPU: ${liveStats.cpuUsage}%", style = MaterialTheme.typography.bodySmall)
-                        Text("RAM: ${liveStats.memoryUsageMb}MB", style = MaterialTheme.typography.bodySmall)
+                        // CPU Usage (app process)
+                        StatItem(
+                            icon = Icons.Default.Speed,
+                            label = "CPU",
+                            value = "${liveStats.cpuUsage}%",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        
+                        // App Total Memory (PSS)
+                        StatItem(
+                            icon = Icons.Default.Memory,
+                            label = "App",
+                            value = "${liveStats.memoryUsageMb}MB",
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                        
+                        // Native Heap (Model memory)
+                        StatItem(
+                            icon = Icons.Default.Psychology,
+                            label = "Model",
+                            value = "${liveStats.nativeHeapMb}MB",
+                            tint = MaterialTheme.colorScheme.tertiary
+                        )
+                        
+                        // Free System RAM
+                        StatItem(
+                            icon = Icons.Default.PhoneAndroid,
+                            label = "Free",
+                            value = "${liveStats.availableMemoryMb}MB",
+                            tint = MaterialTheme.colorScheme.outline
+                        )
                     }
                 }
             }
@@ -223,10 +347,20 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    IconButton(onClick = { viewModel.clearChat() }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Clear chat")
+                    // Clear chat button with label
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        IconButton(onClick = { viewModel.clearChat() }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Clear chat history")
+                        }
+                        Text(
+                            text = "Clear",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     
                     OutlinedTextField(
@@ -235,26 +369,45 @@ fun ChatScreen(
                         modifier = Modifier.weight(1f),
                         placeholder = { Text("Type a message...") },
                         enabled = uiState.isModelReady && !uiState.isLoading,
-                        maxLines = 4
+                        maxLines = 4,
+                        label = { Text("Your message") }
                     )
                     
                     Spacer(modifier = Modifier.width(8.dp))
                     
-                    if (uiState.isLoading) {
-                        IconButton(onClick = { viewModel.stopGeneration() }) {
-                            Icon(Icons.Default.Stop, contentDescription = "Stop")
-                        }
-                    } else {
-                        IconButton(
-                            onClick = {
-                                if (inputText.isNotBlank()) {
-                                    viewModel.sendMessage(inputText)
-                                    inputText = ""
-                                }
-                            },
-                            enabled = uiState.isModelReady && inputText.isNotBlank()
-                        ) {
-                            Icon(Icons.Default.Send, contentDescription = "Send")
+                    // Send/Stop button with label
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (uiState.isLoading) {
+                            IconButton(onClick = { viewModel.stopGeneration() }) {
+                                Icon(Icons.Default.Stop, contentDescription = "Stop generation")
+                            }
+                            Text(
+                                text = "Stop",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    if (inputText.isNotBlank()) {
+                                        viewModel.sendMessage(inputText)
+                                        inputText = ""
+                                    }
+                                },
+                                enabled = uiState.isModelReady && inputText.isNotBlank()
+                            ) {
+                                Icon(Icons.Default.Send, contentDescription = "Send message")
+                            }
+                            Text(
+                                text = "Send",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (uiState.isModelReady && inputText.isNotBlank()) 
+                                    MaterialTheme.colorScheme.primary 
+                                else 
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            )
                         }
                     }
                 }

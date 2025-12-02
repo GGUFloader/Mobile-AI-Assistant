@@ -2,6 +2,7 @@ package com.example.localchatbot.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -46,7 +47,7 @@ fun SettingsScreen(
             item {
                 EngineCard(
                     name = "GGUF (llama.cpp)",
-                    description = "Supports .gguf, .ggml, .bin models",
+                    description = "Best for most LLMs • Supports .gguf, .ggml, .bin models • Optimized for CPU inference",
                     isInstalled = true,
                     isBuiltIn = true
                 )
@@ -55,7 +56,7 @@ fun SettingsScreen(
             item {
                 EngineCard(
                     name = "ExecuTorch",
-                    description = "Supports .pte models",
+                    description = "Meta's mobile runtime • Supports .pte models • Good for on-device ML",
                     isInstalled = installedEngines.contains("executorch"),
                     isBuiltIn = false
                 )
@@ -64,7 +65,7 @@ fun SettingsScreen(
             item {
                 EngineCard(
                     name = "TFLite",
-                    description = "Supports .tflite models",
+                    description = "Google's mobile runtime • Supports .tflite models • Wide model compatibility",
                     isInstalled = installedEngines.contains("tflite"),
                     isBuiltIn = false
                 )
@@ -73,7 +74,7 @@ fun SettingsScreen(
             item {
                 EngineCard(
                     name = "ONNX Runtime",
-                    description = "Supports .onnx models",
+                    description = "Cross-platform runtime • Supports .onnx models • Good for converted models",
                     isInstalled = installedEngines.contains("onnx"),
                     isBuiltIn = false
                 )
@@ -135,10 +136,38 @@ fun EngineCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = name,
-                    style = MaterialTheme.typography.titleSmall
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    // Status badge
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (isInstalled || isBuiltIn) 
+                            MaterialTheme.colorScheme.primaryContainer 
+                        else 
+                            MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            text = when {
+                                isBuiltIn -> "Built-in"
+                                isInstalled -> "Available"
+                                else -> "Not installed"
+                            },
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isInstalled || isBuiltIn) 
+                                MaterialTheme.colorScheme.onPrimaryContainer 
+                            else 
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = description,
                     style = MaterialTheme.typography.bodySmall,
@@ -149,7 +178,7 @@ fun EngineCard(
             if (isInstalled || isBuiltIn) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = "Installed",
+                    contentDescription = "Engine is ready to use",
                     tint = MaterialTheme.colorScheme.primary
                 )
             }

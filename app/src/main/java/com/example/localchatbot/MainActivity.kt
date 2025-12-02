@@ -1,7 +1,11 @@
 package com.example.localchatbot
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -25,6 +29,15 @@ import com.example.localchatbot.ui.theme.LocalChatbotTheme
 class MainActivity : ComponentActivity() {
     
     private var pendingFloatingButtonEnable = false
+    private var floatingButtonState = mutableStateOf(false)
+    
+    private val floatingDisabledReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == FloatingAssistantService.ACTION_FLOATING_DISABLED) {
+                floatingButtonState.value = false
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,6 +46,17 @@ class MainActivity : ComponentActivity() {
         val app = application as ChatApplication
         val engineSettings = EngineSettings(this)
         val prefs = getSharedPreferences("floating_button_prefs", MODE_PRIVATE)
+        
+        // Initialize floating button state
+        floatingButtonState.value = prefs.getBoolean("enabled", false)
+        
+        // Register broadcast receiver for floating button disabled event
+        val filter = IntentFilter(FloatingAssistantService.ACTION_FLOATING_DISABLED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(floatingDisabledReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(floatingDisabledReceiver, filter)
+        }
 
         setContent {
             LocalChatbotTheme {
@@ -41,9 +65,7 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     var currentScreen by remember { mutableStateOf<Screen>(Screen.Chat) }
-                    var isFloatingButtonEnabled by remember { 
-                        mutableStateOf(prefs.getBoolean("enabled", false)) 
-                    }
+                    val isFloatingButtonEnabled by floatingButtonState
                     
                     val scope = rememberCoroutineScope()
                     
@@ -77,7 +99,7 @@ class MainActivity : ComponentActivity() {
                                         if (Settings.canDrawOverlays(this@MainActivity)) {
                                             startFloatingService()
                                             prefs.edit().putBoolean("enabled", true).apply()
-                                            isFloatingButtonEnabled = true
+                                            floatingButtonState.value = true
                                         } else {
                                             pendingFloatingButtonEnable = true
                                             requestOverlayPermission()
@@ -85,7 +107,7 @@ class MainActivity : ComponentActivity() {
                                     } else {
                                         stopFloatingService()
                                         prefs.edit().putBoolean("enabled", false).apply()
-                                        isFloatingButtonEnabled = false
+                                        floatingButtonState.value = false
                                     }
                                 }
                             )
@@ -104,11 +126,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Sync state with preferences in case it was changed externally
+        val prefs = getSharedPreferences("floating_button_prefs", MODE_PRIVATE)
+        floatingButtonState.value = prefs.getBoolean("enabled", false)
+        
         if (pendingFloatingButtonEnable && Settings.canDrawOverlays(this)) {
             pendingFloatingButtonEnable = false
             startFloatingService()
-            getSharedPreferences("floating_button_prefs", MODE_PRIVATE)
-                .edit().putBoolean("enabled", true).apply()
+            prefs.edit().putBoolean("enabled", true).apply()
+            floatingButtonState.value = true
+        }
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unregisterReceiver(floatingDisabledReceiver)
+        } catch (e: Exception) {
+            // Receiver might not be registered
         }
     }
 

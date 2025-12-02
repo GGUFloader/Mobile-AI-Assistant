@@ -3,18 +3,21 @@ package com.example.localchatbot.inference
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class GGUFEngine : InferenceEngine {
     
     companion object {
         private const val TAG = "GGUFEngine"
-        private const val DEFAULT_CONTEXT_SIZE = 512
+        private const val DEFAULT_CONTEXT_SIZE = 512   // Smaller context for faster inference
         private const val DEFAULT_GPU_LAYERS = 0
-        private const val DEFAULT_MAX_TOKENS = 256
-        private const val DEFAULT_TEMPERATURE = 0.7f
+        private const val DEFAULT_MAX_TOKENS = 128     // Shorter responses for speed
+        private const val DEFAULT_TEMPERATURE = 0.5f   // Balanced temperature
         private const val DEFAULT_TOP_P = 0.9f
         private const val DEFAULT_TOP_K = 40
         private const val DEFAULT_REPEAT_PENALTY = 1.1f
+        private const val SHUTDOWN_WAIT_MS = 5000L  // Max wait time for inference to complete
     }
 
     private val initLock = Any()
@@ -22,10 +25,17 @@ class GGUFEngine : InferenceEngine {
     private var isLibraryLoaded = false
     private var modelPath: String? = null
     private var modelPtr: Long = 0
+    
+    // Track active inference operations to prevent use-after-free
+    private val activeInferenceCount = AtomicInteger(0)
+    private val isShuttingDown = AtomicBoolean(false)
 
     override suspend fun initialize(modelPath: String): Boolean = withContext(Dispatchers.IO) {
         synchronized(initLock) {
             try {
+                // Reset shutdown flag for new initialization
+                isShuttingDown.set(false)
+                
                 if (!isLibraryLoaded) {
                     if (!LlamaCpp.loadLibrary()) {
                         Log.e(TAG, "Failed to load llama library")
@@ -61,11 +71,23 @@ class GGUFEngine : InferenceEngine {
     }
 
     override suspend fun inference(prompt: String): String = withContext(Dispatchers.IO) {
+        // Check if shutting down
+        if (isShuttingDown.get()) {
+            throw IllegalStateException("Engine is shutting down")
+        }
+        
         if (!isReady()) {
             throw IllegalStateException("Engine not initialized")
         }
         
+        // Track this inference operation
+        activeInferenceCount.incrementAndGet()
         try {
+            // Double-check after incrementing counter
+            if (isShuttingDown.get() || modelPtr == 0L) {
+                throw IllegalStateException("Engine is shutting down")
+            }
+            
             LlamaCpp.generate(
                 modelPtr,
                 prompt,
@@ -78,15 +100,29 @@ class GGUFEngine : InferenceEngine {
         } catch (e: Exception) {
             Log.e(TAG, "Error during inference", e)
             throw e
+        } finally {
+            activeInferenceCount.decrementAndGet()
         }
     }
 
     override suspend fun inferenceWithParams(prompt: String, maxTokens: Int): String = withContext(Dispatchers.IO) {
+        // Check if shutting down
+        if (isShuttingDown.get()) {
+            throw IllegalStateException("Engine is shutting down")
+        }
+        
         if (!isReady()) {
             throw IllegalStateException("Engine not initialized")
         }
         
+        // Track this inference operation
+        activeInferenceCount.incrementAndGet()
         try {
+            // Double-check after incrementing counter
+            if (isShuttingDown.get() || modelPtr == 0L) {
+                throw IllegalStateException("Engine is shutting down")
+            }
+            
             LlamaCpp.generate(
                 modelPtr,
                 prompt,
@@ -99,6 +135,8 @@ class GGUFEngine : InferenceEngine {
         } catch (e: Exception) {
             Log.e(TAG, "Error during inference", e)
             throw e
+        } finally {
+            activeInferenceCount.decrementAndGet()
         }
     }
 
@@ -107,27 +145,69 @@ class GGUFEngine : InferenceEngine {
         maxTokens: Int,
         onToken: (String) -> Boolean
     ): String = withContext(Dispatchers.IO) {
+        // Check if shutting down
+        if (isShuttingDown.get()) {
+            throw IllegalStateException("Engine is shutting down")
+        }
+        
         if (!isReady()) {
             throw IllegalStateException("Engine not initialized")
         }
         
-        val result = StringBuilder()
-        val callback = object : LlamaCpp.StreamCallback {
-            override fun onToken(token: String): Boolean {
-                result.append(token)
-                return onToken(token)
+        // Track this inference operation
+        activeInferenceCount.incrementAndGet()
+        try {
+            // Double-check after incrementing counter
+            if (isShuttingDown.get() || modelPtr == 0L) {
+                throw IllegalStateException("Engine is shutting down")
             }
+            
+            val result = StringBuilder()
+            val callback = object : LlamaCpp.StreamCallback {
+                override fun onToken(token: String): Boolean {
+                    // Stop if shutting down
+                    if (isShuttingDown.get()) {
+                        return false
+                    }
+                    result.append(token)
+                    return onToken(token)
+                }
+            }
+            
+            LlamaCpp.generateStreaming(modelPtr, prompt, maxTokens, DEFAULT_TEMPERATURE, callback)
+            result.toString()
+        } finally {
+            activeInferenceCount.decrementAndGet()
         }
-        
-        LlamaCpp.generateStreaming(modelPtr, prompt, maxTokens, DEFAULT_TEMPERATURE, callback)
-        result.toString()
     }
 
-    override fun isReady(): Boolean = isInitialized && modelPtr != 0L
+    override fun isReady(): Boolean = isInitialized && modelPtr != 0L && !isShuttingDown.get()
 
     override fun shutdown() {
+        Log.d(TAG, "Shutting down GGUF engine")
+        
+        // Signal that we're shutting down - this will stop new inference and abort streaming
+        isShuttingDown.set(true)
+        
+        // Stop any ongoing generation
+        try {
+            LlamaCpp.stopGeneration()
+            Log.d(TAG, "Stop generation signal sent")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error stopping generation", e)
+        }
+        
+        // Wait for active inference operations to complete
+        val startTime = System.currentTimeMillis()
+        while (activeInferenceCount.get() > 0) {
+            if (System.currentTimeMillis() - startTime > SHUTDOWN_WAIT_MS) {
+                Log.w(TAG, "Timeout waiting for inference to complete, forcing shutdown")
+                break
+            }
+            Thread.sleep(50)
+        }
+        
         synchronized(initLock) {
-            Log.d(TAG, "Shutting down GGUF engine")
             if (modelPtr != 0L) {
                 try {
                     LlamaCpp.freeModel(modelPtr)
