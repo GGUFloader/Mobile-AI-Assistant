@@ -2,7 +2,8 @@
 
 > 🏆 **Arm AI Developer Challenge 2025 Submission**
 
-[![Download APK](https://img.shields.io/badge/Download-APK%20v0.0.1-green?style=for-the-badge&logo=android)](https://github.com/GGUFloader/Mobile-AI-Assistant/releases/download/0.0.1/mobile ai assistant beta v 0.0.1.apk)
+[![Download APK](https://img.shields.io/badge/Download-APK%20v0.0.1-green?style=for-the-badge&logo=android)](https://github.com/GGUFloader/Mobile-AI-Assistant/releases/download/0.0.1/mobile.ai.assistant.beta.v.0.0.1.apk
+)
 
 > ⚠️ **Before Installing APK:** Disable Google Play Protect temporarily:
 > Settings → Google → Security → Google Play Protect → Turn off "Scan apps with Play Protect"
