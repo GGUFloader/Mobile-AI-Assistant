@@ -2,6 +2,12 @@
 
 > 🏆 **Arm AI Developer Challenge 2025 Submission**
 
+[![Download APK](https://img.shields.io/badge/Download-APK%20v0.0.1-green?style=for-the-badge&logo=android)](https://github.com/GGUFloader/Mobile-AI-Assistant/releases/download/0.0.1/app-release.apk)
+
+> ⚠️ **Before Installing APK:** Disable Google Play Protect temporarily:
+> Settings → Google → Security → Google Play Protect → Turn off "Scan apps with Play Protect"
+> (You can re-enable it after installation)
+
 **Your AI, Your Model, Your Device** — A fully offline, privacy-first AI chatbot that lets you run ANY large language model locally on Arm-powered Android devices. Choose the perfect model for your hardware and task.
 
 ![LocalChatbot Logo](logo.png)
