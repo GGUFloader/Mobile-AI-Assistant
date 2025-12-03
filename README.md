@@ -2,8 +2,7 @@
 
 > 🏆 **Arm AI Developer Challenge 2025 Submission**
 
-[![Download APK](https://img.shields.io/badge/Download-APK%20v0.0.1-green?style=for-the-badge&logo=android)](https://github.com/GGUFloader/Mobile-AI-Assistant/releases/download/0.0.1/mobile.ai.assistant.beta.v.0.0.1.apk
-)
+[![Download APK](https://img.shields.io/badge/Download-APK%20v0.0.1-green?style=for-the-badge&logo=android)](https://github.com/GGUFloader/Mobile-AI-Assistant/releases/download/0.0.1/app-release.apk)
 
 > ⚠️ **Before Installing APK:** Disable Google Play Protect temporarily:
 > Settings → Google → Security → Google Play Protect → Turn off "Scan apps with Play Protect"
@@ -169,19 +168,13 @@ externalNativeBuild {
    cd Mobile-AI-Assistant
    ```
 
-2. **Initialize llama.cpp submodule:**
-   ```bash
-   cd app/src/main/cpp
-   git clone https://github.com/ggerganov/llama.cpp.git
-   cd ../../../..
-   ```
-
-3. **Open in Android Studio:**
-   - Open the `LocalChatbot` folder in Android Studio
-   - Wait for Gradle sync to complete
+2. **Open in Android Studio:**
+   - Open the `Mobile-AI-Assistant` folder in Android Studio
+   - Wait for Gradle sync to complete (llama.cpp is automatically downloaded by Gradle)
+   - If prompted, install any missing SDK components
    - If prompted, install any missing SDK components
 
-4. **Build the project:**
+3. **Build the project:**
    ```bash
    # On Windows
    gradlew.bat assembleRelease
@@ -191,7 +184,7 @@ externalNativeBuild {
    ```
    Or use Android Studio: Build → Build Bundle(s) / APK(s) → Build APK(s)
 
-5. **Install on device:**
+4. **Install on device:**
    ```bash
    adb install app/build/outputs/apk/release/app-release.apk
    ```
