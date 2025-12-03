@@ -3,6 +3,25 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Clone llama.cpp at configuration time (before CMake runs during sync)
+val llamaCppDir = file("src/main/cpp/llama.cpp")
+val llamaCppCMake = file("src/main/cpp/llama.cpp/CMakeLists.txt")
+
+if (!llamaCppCMake.exists()) {
+    println("llama.cpp not found, cloning repository...")
+    
+    // Remove empty directory if it exists
+    if (llamaCppDir.exists() && (llamaCppDir.list()?.isEmpty() == true)) {
+        llamaCppDir.delete()
+    }
+    
+    exec {
+        commandLine("git", "clone", "--depth", "1", "https://github.com/ggerganov/llama.cpp.git", llamaCppDir.absolutePath)
+    }
+    
+    println("llama.cpp cloned successfully!")
+}
+
 android {
     namespace = "com.example.localchatbot"
     compileSdk = 34
