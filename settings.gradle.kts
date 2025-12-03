@@ -16,6 +16,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // PyTorch/ExecuTorch Maven repository
+        maven { url = uri("https://oss.sonatype.org/content/repositories/snapshots") }
     }
 }
 

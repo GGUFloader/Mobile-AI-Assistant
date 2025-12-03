@@ -39,18 +39,19 @@ class AssistantChatActivity : ComponentActivity() {
             LocalChatbotTheme {
                 AssistantChatScreen(
                     onClose = { finish() },
-                    onSendMessage = { message, onResponse ->
+                    onSendMessage = { message, onToken, onComplete ->
                         kotlinx.coroutines.GlobalScope.launch {
                             if (modelRunner.isReady()) {
-                                modelRunner.generateResponse(message)
-                                    .onSuccess { response ->
-                                        onResponse(response)
-                                    }
-                                    .onFailure { error ->
-                                        onResponse("Error: ${error.message}")
-                                    }
+                                modelRunner.generateResponseStreaming(message) { token ->
+                                    onToken(token)
+                                    true
+                                }.onSuccess { response ->
+                                    onComplete(response)
+                                }.onFailure { error ->
+                                    onComplete("Error: ${error.message}")
+                                }
                             } else {
-                                onResponse("Please load a model first in the main app")
+                                onComplete("Please load a model first in the main app")
                             }
                         }
                     }
@@ -64,15 +65,16 @@ class AssistantChatActivity : ComponentActivity() {
 @Composable
 fun AssistantChatScreen(
     onClose: () -> Unit,
-    onSendMessage: (String, (String) -> Unit) -> Unit
+    onSendMessage: (String, (String) -> Unit, (String) -> Unit) -> Unit
 ) {
     var inputText by remember { mutableStateOf("") }
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var isLoading by remember { mutableStateOf(false) }
+    var streamingContent by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(messages.size) {
+    LaunchedEffect(messages.size, streamingContent) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.lastIndex)
         }
@@ -148,16 +150,36 @@ fun AssistantChatScreen(
                                 )
                                 messages = messages + loadingMessage
                                 
-                                onSendMessage(query) { response ->
-                                    scope.launch {
-                                        val assistantMessage = ChatMessage(
-                                            content = response,
-                                            isFromUser = false
-                                        )
-                                        messages = messages.dropLast(1) + assistantMessage
-                                        isLoading = false
+                                streamingContent = ""
+                                onSendMessage(
+                                    query,
+                                    { token -> // onToken - streaming callback
+                                        scope.launch {
+                                            streamingContent += token
+                                            // Update the loading message with streaming content
+                                            val updatedMessages = messages.toMutableList()
+                                            val lastIndex = updatedMessages.lastIndex
+                                            if (lastIndex >= 0 && !updatedMessages[lastIndex].isFromUser) {
+                                                updatedMessages[lastIndex] = updatedMessages[lastIndex].copy(
+                                                    content = streamingContent,
+                                                    isLoading = true
+                                                )
+                                                messages = updatedMessages
+                                            }
+                                        }
+                                    },
+                                    { finalResponse -> // onComplete
+                                        scope.launch {
+                                            val assistantMessage = ChatMessage(
+                                                content = finalResponse,
+                                                isFromUser = false
+                                            )
+                                            messages = messages.dropLast(1) + assistantMessage
+                                            isLoading = false
+                                            streamingContent = ""
+                                        }
                                     }
-                                }
+                                )
                             }
                         },
                         enabled = inputText.isNotBlank() && !isLoading

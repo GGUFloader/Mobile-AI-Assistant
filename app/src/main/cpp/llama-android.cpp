@@ -17,12 +17,15 @@
 // Global stop flag for generation
 static std::atomic<bool> g_stop_generation{false};
 
-// Structure to hold model and context together
+// Structure to hold model and context together with reusable resources
 struct LlamaModel {
     llama_model* model = nullptr;
     llama_context* ctx = nullptr;
     llama_sampler* sampler = nullptr;
+    llama_batch batch = {};
     int n_ctx = 2048;
+    int batch_size = 512;
+    bool batch_initialized = false;
 };
 
 static void log_callback(ggml_log_level level, const char* fmt, void* data) {
@@ -64,24 +67,12 @@ static bool is_valid_utf8(const char* string) {
 
 // Check if the generated text contains stop sequences (model trying to continue conversation)
 static bool contains_stop_sequence(const std::string& text) {
-    // Common stop sequences for various model formats (Alpaca, ChatML, Vicuna, etc.)
     static const char* stop_sequences[] = {
-        "### Instruction:",
-        "### Input:",
-        "### Response:",
-        "### Human:",
-        "### Assistant:",
-        "<|im_end|>",
-        "<|im_start|>",
-        "<|user|>",
-        "<|assistant|>",
-        "<|endoftext|>",
+        "\nQ:",      // Q&A format continuation
+        "\n\nQ:",
+        "Q:",
         "</s>",
-        "\nUser:",
-        "\nHuman:",
-        "\nAssistant:",
-        "\n\nUser:",
-        "\n\nHuman:",
+        "<|endoftext|>",
         nullptr
     };
     
@@ -96,22 +87,11 @@ static bool contains_stop_sequence(const std::string& text) {
 // Trim stop sequences from the end of generated text
 static std::string trim_at_stop_sequence(const std::string& text) {
     static const char* stop_sequences[] = {
-        "### Instruction:",
-        "### Input:",
-        "### Response:",
-        "### Human:",
-        "### Assistant:",
-        "<|im_end|>",
-        "<|im_start|>",
-        "<|user|>",
-        "<|assistant|>",
-        "<|endoftext|>",
+        "\nQ:",
+        "\n\nQ:",
+        "Q:",
         "</s>",
-        "\nUser:",
-        "\nHuman:",
-        "\nAssistant:",
-        "\n\nUser:",
-        "\n\nHuman:",
+        "<|endoftext|>",
         nullptr
     };
     
@@ -174,17 +154,18 @@ Java_com_example_localchatbot_inference_LlamaCpp_loadModel(
         return 0;
     }
 
-    // Create context params
-    int n_threads = std::max(1, std::min(8, (int)sysconf(_SC_NPROCESSORS_ONLN) - 2));
+    // Create context params - use more threads for better performance
+    int n_threads = std::max(2, std::min(8, (int)sysconf(_SC_NPROCESSORS_ONLN)));
     LOGI("Using %d threads", n_threads);
 
     llama_context_params ctx_params = llama_context_default_params();
     ctx_params.n_ctx = n_ctx > 0 ? n_ctx : 2048;
     ctx_params.n_threads = n_threads;
     ctx_params.n_threads_batch = n_threads;
+    ctx_params.n_batch = 512;  // Larger batch for faster prompt processing
 
-    // Create context
-    llama_context* ctx = llama_new_context_with_model(model, ctx_params);
+    // Create context using the new API
+    llama_context* ctx = llama_init_from_model(model, ctx_params);
     if (!ctx) {
         LOGE("Failed to create context");
         llama_model_free(model);
@@ -197,12 +178,15 @@ Java_com_example_localchatbot_inference_LlamaCpp_loadModel(
     llama_sampler* sampler = llama_sampler_chain_init(sparams);
     llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
 
-    // Create wrapper structure
+    // Create wrapper structure with pre-allocated batch
     LlamaModel* wrapper = new LlamaModel();
     wrapper->model = model;
     wrapper->ctx = ctx;
     wrapper->sampler = sampler;
     wrapper->n_ctx = ctx_params.n_ctx;
+    wrapper->batch_size = 512;
+    wrapper->batch = llama_batch_init(wrapper->batch_size, 0, 1);
+    wrapper->batch_initialized = true;
 
     LOGI("Model loaded successfully, ptr: %p", wrapper);
     return reinterpret_cast<jlong>(wrapper);
@@ -219,6 +203,9 @@ Java_com_example_localchatbot_inference_LlamaCpp_freeModel(
     LlamaModel* wrapper = reinterpret_cast<LlamaModel*>(model_ptr);
     LOGI("Freeing model, ptr: %p", wrapper);
 
+    if (wrapper->batch_initialized) {
+        llama_batch_free(wrapper->batch);
+    }
     if (wrapper->sampler) {
         llama_sampler_free(wrapper->sampler);
     }
@@ -293,8 +280,19 @@ Java_com_example_localchatbot_inference_LlamaCpp_generate(
         max_tokens = std::max(1, n_ctx - (int)tokens.size() - 10);
     }
 
-    // Create batch for prompt processing
-    llama_batch batch = llama_batch_init(std::max((int)tokens.size(), max_tokens), 0, 1);
+    // Reuse pre-allocated batch or create new one if needed
+    llama_batch& batch = wrapper->batch;
+    int required_size = std::max((int)tokens.size(), max_tokens);
+    if (!wrapper->batch_initialized || required_size > wrapper->batch_size) {
+        if (wrapper->batch_initialized) {
+            llama_batch_free(wrapper->batch);
+        }
+        wrapper->batch = llama_batch_init(required_size, 0, 1);
+        wrapper->batch_size = required_size;
+        wrapper->batch_initialized = true;
+        batch = wrapper->batch;
+    }
+    common_batch_clear(batch);
 
     // Add prompt tokens to batch
     for (size_t i = 0; i < tokens.size(); i++) {
@@ -305,7 +303,6 @@ Java_com_example_localchatbot_inference_LlamaCpp_generate(
     // Process prompt
     if (llama_decode(wrapper->ctx, batch) != 0) {
         LOGE("llama_decode failed for prompt");
-        llama_batch_free(batch);
         return env->NewStringUTF("Error: Failed to process prompt");
     }
 
@@ -378,7 +375,7 @@ Java_com_example_localchatbot_inference_LlamaCpp_generate(
     result = trim_at_stop_sequence(result);
 
     llama_sampler_free(smpl);
-    llama_batch_free(batch);
+    // Don't free batch - it's reused
 
     LOGI("Generated %zu characters", result.size());
     return env->NewStringUTF(result.c_str());
@@ -434,8 +431,19 @@ Java_com_example_localchatbot_inference_LlamaCpp_generateStreaming(
         max_tokens = std::max(1, n_ctx - (int)tokens.size() - 10);
     }
 
-    // Create batch
-    llama_batch batch = llama_batch_init(std::max((int)tokens.size(), max_tokens), 0, 1);
+    // Reuse pre-allocated batch or create new one if needed
+    llama_batch& batch = wrapper->batch;
+    int required_size = std::max((int)tokens.size(), max_tokens);
+    if (!wrapper->batch_initialized || required_size > wrapper->batch_size) {
+        if (wrapper->batch_initialized) {
+            llama_batch_free(wrapper->batch);
+        }
+        wrapper->batch = llama_batch_init(required_size, 0, 1);
+        wrapper->batch_size = required_size;
+        wrapper->batch_initialized = true;
+        batch = wrapper->batch;
+    }
+    common_batch_clear(batch);
 
     // Add prompt tokens to batch
     for (size_t i = 0; i < tokens.size(); i++) {
@@ -446,7 +454,6 @@ Java_com_example_localchatbot_inference_LlamaCpp_generateStreaming(
     // Process prompt
     if (llama_decode(wrapper->ctx, batch) != 0) {
         LOGE("llama_decode failed for prompt");
-        llama_batch_free(batch);
         jstring error = env->NewStringUTF("Error: Failed to process prompt");
         env->CallBooleanMethod(callback, onTokenMethod, error);
         env->DeleteLocalRef(error);
@@ -528,7 +535,7 @@ Java_com_example_localchatbot_inference_LlamaCpp_generateStreaming(
     }
 
     llama_sampler_free(smpl);
-    llama_batch_free(batch);
+    // Don't free batch - it's reused
     LOGI("Streaming generation complete");
 }
 

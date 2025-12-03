@@ -109,7 +109,7 @@ class EngineManager(private val context: Context) {
         
         return try {
             val response = engine.inferenceWithParams(prompt, maxTokens)
-            Result.success(cleanResponse(response))
+            Result.success(response.trim())
         } catch (e: Exception) {
             Log.e(TAG, "Error generating response", e)
             Result.failure(e)
@@ -128,17 +128,11 @@ class EngineManager(private val context: Context) {
         
         return try {
             val response = engine.generateStreaming(prompt, maxTokens, onToken)
-            Result.success(cleanResponse(response))
+            Result.success(response.trim())
         } catch (e: Exception) {
             Log.e(TAG, "Error generating streaming response", e)
             Result.failure(e)
         }
-    }
-
-    private fun cleanResponse(response: String): String {
-        return response
-            .replace(Regex("\\s+"), " ")
-            .trim()
     }
 
     fun getCurrentModelInfo(): ModelInfo? {
@@ -152,12 +146,16 @@ class EngineManager(private val context: Context) {
 
     fun isModelLoaded(): Boolean = currentEngine?.isReady() == true
 
-    fun getSupportedFormats(): List<String> = listOf("gguf", "ggml", "bin", "pte")
+    fun getSupportedFormats(): List<String> = if (ExecuTorchEngine.IS_AVAILABLE) {
+        listOf("gguf", "ggml", "bin", "pte")
+    } else {
+        listOf("gguf", "ggml", "bin")
+    }
 
     fun isEngineAvailable(modelType: ModelType): Boolean {
         return when (modelType) {
             ModelType.GGUF -> true
-            ModelType.PTE -> true
+            ModelType.PTE -> ExecuTorchEngine.IS_AVAILABLE
             else -> false
         }
     }

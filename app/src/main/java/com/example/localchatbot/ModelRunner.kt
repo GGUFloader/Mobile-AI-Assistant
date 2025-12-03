@@ -13,7 +13,7 @@ class ModelRunner(context: Context) {
     
     companion object {
         private const val TAG = "ModelRunner"
-        private const val MAX_HISTORY_TURNS = 3  // Keep last 3 exchanges (small models have limited context)
+        private const val MAX_HISTORY_TURNS = 1  // Only last exchange for max speed
     }
     
     private val engineManager = EngineManager(context)
@@ -89,6 +89,8 @@ class ModelRunner(context: Context) {
             "### Response:",
             "### Human:",
             "### Assistant:",
+            "### User:",
+            "### System:",
             "User:",
             "Human:",
             "Assistant:",
@@ -118,33 +120,28 @@ class ModelRunner(context: Context) {
 
     private fun formatPrompt(userInput: String): String {
         val input = userInput.trim()
-        val sb = StringBuilder()
         
-        // Use simple Alpaca-style format (works with most small models)
-        // Keep it minimal for 600MB models
+        // Detect if this looks like text to summarize (long input)
+        val isSummarizationTask = input.length > 200
         
-        if (conversationHistory.isEmpty()) {
-            // Single turn - simple instruction format
-            sb.append("### Instruction:\n")
-            sb.append(input)
-            sb.append("\n\n### Response:\n")
+        val systemPrompt = if (isSummarizationTask) {
+            "You are a summarization assistant. Summarize the given text concisely. Extract only the key points. Output a brief summary, not the original text."
         } else {
-            // Multi-turn - include recent history
-            sb.append("### Instruction:\n")
-            sb.append("You are a helpful assistant. Answer the user's question based on the conversation.\n\n")
-            
-            // Add last 2-3 turns only (small models have limited context)
-            val recentHistory = conversationHistory.takeLast(3)
-            for ((userMsg, assistantMsg) in recentHistory) {
-                sb.append("User: $userMsg\n")
-                sb.append("Assistant: $assistantMsg\n\n")
-            }
-            
-            sb.append("User: $input\n\n")
-            sb.append("### Response:\n")
+            "You are a helpful assistant. Answer directly and concisely. Stay focused on what was asked. Do not add unrelated information."
         }
         
-        return sb.toString()
+        val userPrompt = if (isSummarizationTask && !input.lowercase().contains("summar")) {
+            "Summarize this:\n$input"
+        } else {
+            input
+        }
+        
+        return """<|im_start|>system
+$systemPrompt<|im_end|>
+<|im_start|>user
+$userPrompt<|im_end|>
+<|im_start|>assistant
+"""
     }
 
     fun isReady(): Boolean = engineManager.isModelLoaded()

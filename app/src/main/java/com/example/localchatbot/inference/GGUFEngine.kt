@@ -10,14 +10,14 @@ class GGUFEngine : InferenceEngine {
     
     companion object {
         private const val TAG = "GGUFEngine"
-        private const val DEFAULT_CONTEXT_SIZE = 512   // Smaller context for faster inference
-        private const val DEFAULT_GPU_LAYERS = 0
-        private const val DEFAULT_MAX_TOKENS = 128     // Shorter responses for speed
-        private const val DEFAULT_TEMPERATURE = 0.5f   // Balanced temperature
-        private const val DEFAULT_TOP_P = 0.9f
-        private const val DEFAULT_TOP_K = 40
-        private const val DEFAULT_REPEAT_PENALTY = 1.1f
-        private const val SHUTDOWN_WAIT_MS = 5000L  // Max wait time for inference to complete
+        private const val DEFAULT_CONTEXT_SIZE = 2048  // Larger context for better performance
+        private const val DEFAULT_GPU_LAYERS = 0       // CPU only (no GPU)
+        private const val DEFAULT_MAX_TOKENS = 200     // Enough for good summaries
+        private const val DEFAULT_TEMPERATURE = 0.0f   // Greedy sampling = fastest
+        private const val DEFAULT_TOP_P = 1.0f
+        private const val DEFAULT_TOP_K = 1            // Only top token = fastest
+        private const val DEFAULT_REPEAT_PENALTY = 1.0f // No penalty = faster
+        private const val SHUTDOWN_WAIT_MS = 5000L
     }
 
     private val initLock = Any()

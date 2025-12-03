@@ -40,6 +40,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Switch from splash theme to regular theme
+        setTheme(R.style.Theme_LocalChatbot)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         

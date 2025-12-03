@@ -29,9 +29,10 @@ android {
                 arguments += "-DLLAMA_BUILD_COMMON=ON"
                 arguments += "-DGGML_LLAMAFILE=OFF"
                 arguments += "-DGGML_OPENMP=OFF"
+                arguments += "-DGGML_NEON=ON"
                 arguments += "-DCMAKE_BUILD_TYPE=Release"
-                cppFlags += listOf("-O3", "-fno-finite-math-only")
-                cFlags += listOf("-O3", "-fno-finite-math-only")
+                cppFlags += listOf("-O3", "-ffast-math", "-fno-finite-math-only", "-march=armv8-a+simd")
+                cFlags += listOf("-O3", "-ffast-math", "-fno-finite-math-only", "-march=armv8-a+simd")
             }
         }
     }
@@ -96,8 +97,10 @@ dependencies {
     
     implementation("com.facebook.soloader:soloader:0.10.5")
     
-    // ExecuTorch for .pte model support
-    implementation(files("libs/executorch.aar"))
+    // ExecuTorch disabled - AAR missing Java classes
+    // To enable, build AAR from source: https://github.com/pytorch/executorch
+    // implementation(files("libs/executorch.aar"))
+    // implementation("com.facebook.fbjni:fbjni:0.5.1")
     
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

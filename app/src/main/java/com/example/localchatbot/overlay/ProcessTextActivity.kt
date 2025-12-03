@@ -33,18 +33,19 @@ class ProcessTextActivity : ComponentActivity() {
                 ProcessTextScreen(
                     selectedText = selectedText,
                     onClose = { finish() },
-                    onProcess = { text, onResponse ->
+                    onProcess = { text, onToken, onComplete ->
                         kotlinx.coroutines.GlobalScope.launch {
                             if (modelRunner.isReady()) {
-                                modelRunner.generateResponse(text)
-                                    .onSuccess { response ->
-                                        onResponse(response)
-                                    }
-                                    .onFailure { error ->
-                                        onResponse("Error: ${error.message}")
-                                    }
+                                modelRunner.generateResponseStreaming(text) { token ->
+                                    onToken(token)
+                                    true
+                                }.onSuccess { response ->
+                                    onComplete(response)
+                                }.onFailure { error ->
+                                    onComplete("Error: ${error.message}")
+                                }
                             } else {
-                                onResponse("Please load a model first in the main app")
+                                onComplete("Please load a model first in the main app")
                             }
                         }
                     }
@@ -59,9 +60,9 @@ class ProcessTextActivity : ComponentActivity() {
 fun ProcessTextScreen(
     selectedText: String,
     onClose: () -> Unit,
-    onProcess: (String, (String) -> Unit) -> Unit
+    onProcess: (String, (String) -> Unit, (String) -> Unit) -> Unit
 ) {
-    var response by remember { mutableStateOf<String?>(null) }
+    var response by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -69,12 +70,21 @@ fun ProcessTextScreen(
     LaunchedEffect(selectedText) {
         if (selectedText.isNotBlank()) {
             isLoading = true
-            onProcess(selectedText) { result ->
-                scope.launch {
-                    response = result
-                    isLoading = false
+            response = ""
+            onProcess(
+                selectedText,
+                { token -> // onToken - streaming callback
+                    scope.launch {
+                        response += token
+                    }
+                },
+                { finalResult -> // onComplete
+                    scope.launch {
+                        response = finalResult
+                        isLoading = false
+                    }
                 }
-            }
+            )
         }
     }
 
@@ -138,13 +148,13 @@ fun ProcessTextScreen(
                         .fillMaxSize()
                         .padding(12.dp)
                 ) {
-                    if (isLoading) {
+                    if (isLoading && response.isEmpty()) {
                         CircularProgressIndicator(
                             modifier = Modifier.align(Alignment.Center)
                         )
                     } else {
                         Text(
-                            text = response ?: "Processing...",
+                            text = response.ifEmpty { "Processing..." },
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
@@ -165,11 +175,11 @@ fun ProcessTextScreen(
                 
                 Button(
                     onClick = {
-                        response?.let {
-                            clipboardManager.setText(AnnotatedString(it))
+                        if (response.isNotEmpty()) {
+                            clipboardManager.setText(AnnotatedString(response))
                         }
                     },
-                    enabled = response != null && !isLoading
+                    enabled = response.isNotEmpty() && !isLoading
                 ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = null)
                     Spacer(modifier = Modifier.width(4.dp))

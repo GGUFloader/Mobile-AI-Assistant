@@ -346,16 +346,33 @@ class FloatingAssistantService : Service(), LifecycleOwner, SavedStateRegistryOw
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 if (modelRunner.isReady()) {
-                    android.util.Log.d("FloatingAssistant", "Starting generation for: ${message.take(30)}...")
+                    android.util.Log.d("FloatingAssistant", "Starting streaming generation for: ${message.take(30)}...")
                     
-                    val result = modelRunner.generateResponse(message)
+                    val response = StringBuilder()
                     
-                    // Update UI on Main thread
+                    val result = modelRunner.generateResponseStreaming(message) { token ->
+                        response.append(token)
+                        // Update UI on Main thread with streaming token
+                        kotlinx.coroutines.runBlocking(Dispatchers.Main) {
+                            val messages = chatMessages.value.toMutableList()
+                            val lastIndex = messages.lastIndex
+                            if (lastIndex >= 0 && !messages[lastIndex].isFromUser) {
+                                messages[lastIndex] = messages[lastIndex].copy(
+                                    content = response.toString(),
+                                    isLoading = true
+                                )
+                                chatMessages.value = messages
+                            }
+                        }
+                        true // Continue streaming
+                    }
+                    
+                    // Update UI on Main thread with final response
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        result.onSuccess { response ->
-                            android.util.Log.d("FloatingAssistant", "Got response: ${response.take(50)}...")
+                        result.onSuccess { finalResponse ->
+                            android.util.Log.d("FloatingAssistant", "Got response: ${finalResponse.take(50)}...")
                             val assistantMessage = ChatMessage(
-                                content = response,
+                                content = finalResponse,
                                 isFromUser = false
                             )
                             chatMessages.value = chatMessages.value.dropLast(1) + assistantMessage
